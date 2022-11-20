@@ -44,8 +44,11 @@ import subprocess
 # encryption and decryption pipes you prefer. They should read from standard
 # input and write to standard output. The example values here invoke GPG,
 # although won't work until an appropriate identity appears in the first line.
-ENCRYPTION_PIPE = ["gpg", "--encrypt", "--recipient", "aliveandglorius@protonmail.com"]
+ENCRYPTION_PIPE = ["gpg", "--encrypt", "--recipient"]
 DECRYPTION_PIPE = ["gpg", "--decrypt"]
+
+PASS_WRITE = ["pass", "insert", "-m"]
+PASS_READ = ["pass", "show"]
 
 registrations = {
     "google": {
@@ -94,49 +97,84 @@ def main():
     )
     ap.add_argument("-v", "--verbose", action="store_true", help="increase verbosity")
     ap.add_argument("-d", "--debug", action="store_true", help="enable debug output")
-    ap.add_argument("tokenfile", help="persistent token storage")
+    ap.add_argument(
+        "--pass",
+        dest="pass_",
+        help="Use pass to store and retrieve tokens instead of a GPG-encrypted file",
+    )
+    ap.add_argument("--tokenfile", help="persistent token storage")
     ap.add_argument(
         "-a", "--authorize", action="store_true", help="manually authorize new tokens"
     )
     ap.add_argument("--authflow", help="authcode | localhostauthcode | devicecode")
+    ap.add_argument(
+        "--gpg-key",
+        help="The GPG key (email address usually) to encrypt the --tokenfile",
+    )
     ap.add_argument(
         "-t", "--test", action="store_true", help="test IMAP/POP/SMTP endpoints"
     )
     args = ap.parse_args()
 
     token = {}
-    path = Path(args.tokenfile)
-    if path.exists():
-        if 0o777 & path.stat().st_mode != 0o600:
-            sys.exit("Token file has unsafe mode. Suggest deleting and starting over.")
-        try:
-            sub = subprocess.run(
-                DECRYPTION_PIPE,
-                check=True,
-                input=path.read_bytes(),
-                capture_output=True,
-            )
-            token = json.loads(sub.stdout)
-        except subprocess.CalledProcessError:
-            sys.exit(
-                "Difficulty decrypting token file. Is your decryption agent primed for "
-                "non-interactive usage, or an appropriate environment variable such as "
-                "GPG_TTY set to allow interactive agent usage from inside a pipe?"
-            )
+
+    if args.pass_:
+        sub = subprocess.run(
+            PASS_READ + [args.pass_],
+            check=True,
+            capture_output=True,
+        )
+        token = json.loads(sub.stdout)
+
+    elif args.tokenfile:
+        path = Path(args.tokenfile)
+        if path.exists():
+            if 0o777 & path.stat().st_mode != 0o600:
+                sys.exit(
+                    "Token file has unsafe mode. Suggest deleting and starting over."
+                )
+            try:
+                sub = subprocess.run(
+                    DECRYPTION_PIPE,
+                    check=True,
+                    input=path.read_bytes(),
+                    capture_output=True,
+                )
+                token = json.loads(sub.stdout)
+            except subprocess.CalledProcessError:
+                sys.exit(
+                    "Difficulty decrypting token file. Is your decryption agent primed for "
+                    "non-interactive usage, or an appropriate environment variable such as "
+                    "GPG_TTY set to allow interactive agent usage from inside a pipe?"
+                )
+
+    else:
+        sys.exit("Must specify tokenfile or --tokencmd")
 
     def writetokenfile():
         """Writes global token dictionary into token file."""
-        if not path.exists():
-            path.touch(mode=0o600)
-        if 0o777 & path.stat().st_mode != 0o600:
-            sys.exit("Token file has unsafe mode. Suggest deleting and starting over.")
-        sub2 = subprocess.run(
-            ENCRYPTION_PIPE,
-            check=True,
-            input=json.dumps(token).encode(),
-            capture_output=True,
-        )
-        path.write_bytes(sub2.stdout)
+        if args.pass_:
+            subprocess.run(
+                PASS_WRITE + [args.pass_],
+                check=True,
+                capture_output=True,
+                input=json.dumps(token).encode(),
+            )
+
+        else:
+            if not path.exists():
+                path.touch(mode=0o600)
+            if 0o777 & path.stat().st_mode != 0o600:
+                sys.exit(
+                    "Token file has unsafe mode. Suggest deleting and starting over."
+                )
+            sub2 = subprocess.run(
+                ENCRYPTION_PIPE + [args.gpg_key],
+                check=True,
+                input=json.dumps(token).encode(),
+                capture_output=True,
+            )
+            path.write_bytes(sub2.stdout)
 
     if args.debug:
         print("Obtained from token file:", json.dumps(token))
