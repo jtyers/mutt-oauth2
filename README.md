@@ -1,3 +1,13 @@
+# mutt-oauth2
+
+Allows you to use mutt and related tools (such as [isync](http://isync.sourceforge.net/)) with servers that require Oauth2 authentication such as Google and Microsoft.
+
+This is an enhanced version of the `mutt_oauth2.py` shipped with the mutt source code. All credit to Alexander Perlis and other authors for the original script.
+
+# Original README
+
+Here's the README from the original script, to help you configure. 
+
 mutt_oauth.py README by Alexander Perlis, 2020-07-15
 ====================================================
 
